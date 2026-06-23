@@ -3,8 +3,7 @@ import RosterPanel from './RosterPanel.jsx'
 import EventCreationPanel from './EventCreationPanel.jsx'
 import ActiveEventsPanel from './ActiveEventsPanel.jsx'
 import TrialScoresPanel from './TrialScoresPanel.jsx'
-import ScheduleCachePanel from './ScheduleCachePanel.jsx'
-import ThemeSwitcher from './ThemeSwitcher.jsx'
+import MaintenancePanel from './MaintenancePanel.jsx'
 import SessionPanel from './SessionPanel.jsx'
 
 const TABS = [
@@ -13,7 +12,7 @@ const TABS = [
   { id: 'create', label: 'Create Event' },
   { id: 'scores', label: 'Trial Scores' },
   { id: 'roster', label: 'Roster' },
-  { id: 'schedule', label: 'Update Schedule' },
+  { id: 'maintenance', label: 'Maintenance' },
 ]
 
 export default function AdminPage() {
@@ -40,17 +39,12 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {tab === 'session'  && <SessionPanel />}
-      {tab === 'active'   && <ActiveEventsPanel />}
-      {tab === 'create'   && <EventCreationPanel onEventCreated={() => setTab('active')} />}
-      {tab === 'scores'   && <TrialScoresPanel initialSearch={scoreSearch} />}
-      {tab === 'roster'   && <RosterPanel onViewScores={viewPlayerScores} />}
-      {tab === 'schedule' && (
-        <>
-          <ScheduleCachePanel />
-          <ThemeSwitcher />
-        </>
-      )}
+      {tab === 'session'     && <SessionPanel />}
+      {tab === 'active'      && <ActiveEventsPanel />}
+      {tab === 'create'      && <EventCreationPanel onEventCreated={() => setTab('active')} />}
+      {tab === 'scores'      && <TrialScoresPanel initialSearch={scoreSearch} />}
+      {tab === 'roster'      && <RosterPanel onViewScores={viewPlayerScores} />}
+      {tab === 'maintenance' && <MaintenancePanel />}
     </div>
   )
 }

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import {
-  getPlayers, getWeeklyStats, getTrialNames,
+  getPlayers, getTrialNames,
   getActiveSession, getSessionsForWeek, createSession, updateSession,
   completeWave, cancelWave,
 } from '../../data/schema.js'
 import { getWeekKey, formatWeekLabel } from '../../utils/weeks.js'
-import { suggestScoringCandidates } from '../../utils/suggestions.js'
+import AlphaPlayerGrid from '../shared/AlphaPlayerGrid.jsx'
 
 const TRIAL_NUMBERS = [1, 2, 3, 4, 5]
 
@@ -15,30 +15,22 @@ function genId() {
 
 export default function SessionPanel() {
   const [players, setPlayers] = useState([])
-  const [weeklyStats, setWeeklyStats] = useState([])
   const [trialNames, setTrialNames] = useState({})
   const [session, setSession] = useState(null)
   const [pastSessions, setPastSessions] = useState([])
   const [loading, setLoading] = useState(true)
-
   const [newTrial, setNewTrial] = useState('')
-
-  const [completingRunIndex, setCompletingRunIndex] = useState(null)
-  const [completeScore, setCompleteScore] = useState('')
-  const [saving, setSaving] = useState(false)
 
   const weekKey = getWeekKey()
 
   async function load() {
-    const [plyrs, stats, names, active, allSessions] = await Promise.all([
+    const [plyrs, names, active, allSessions] = await Promise.all([
       getPlayers(),
-      getWeeklyStats(weekKey),
       getTrialNames(weekKey),
       getActiveSession(),
       getSessionsForWeek(weekKey),
     ])
     setPlayers(plyrs)
-    setWeeklyStats(stats)
     setTrialNames(names)
     setSession(active)
     setPastSessions(allSessions.filter((s) => s.status === 'closed'))
@@ -47,9 +39,7 @@ export default function SessionPanel() {
 
   useEffect(() => { load() }, [])
 
-  const statsByPlayer = Object.fromEntries(weeklyStats.map((s) => [s.playerId, s]))
   const playersById = Object.fromEntries(players.map((p) => [p.id, p]))
-  const suggestedOrder = suggestScoringCandidates(players, weeklyStats)
 
   async function handleCreateSession() {
     if (!newTrial) return
@@ -66,7 +56,7 @@ export default function SessionPanel() {
   }
 
   async function handleUpdateRunPlayers(runIndex, playerIds) {
-    const runs = session.runs.map((w, i) => i === runIndex ? { ...w, playerIds } : w)
+    const runs = session.runs.map((r, i) => i === runIndex ? { ...r, playerIds } : r)
     await updateSession(session.id, { runs })
     await load()
   }
@@ -86,19 +76,13 @@ export default function SessionPanel() {
     await load()
   }
 
-  async function handleCompleteRun() {
-    if (completingRunIndex === null) return
-    const score = completeScore.trim() === '' ? null : Number(completeScore)
-    setSaving(true)
-    await completeWave(session, completingRunIndex, isNaN(score) ? null : score)
-    setCompletingRunIndex(null)
-    setCompleteScore('')
-    setSaving(false)
+  async function handleCompleteRun(runIndex) {
+    await completeWave(session, runIndex)
     await load()
   }
 
   async function handleCancelRun(runIndex) {
-    if (!window.confirm('Cancel this run? No points will be awarded.')) return
+    if (!window.confirm('Cancel this run?')) return
     await cancelWave(session, runIndex)
     await load()
   }
@@ -114,11 +98,11 @@ export default function SessionPanel() {
   return (
     <div>
       {!session ? (
-        // ── New session form ──
         <div style={{ maxWidth: 400 }}>
           <h2 style={{ marginTop: 0 }}>Start a Session</h2>
           <p style={{ fontSize: 13, marginBottom: '1.5rem' }}>
-            A session tracks the scoring rotation for one trial. All players on the roster are available to assign to runs.
+            A session is a planning scratchpad for tracking scoring rotation.
+            No points are awarded here — use events for official credit.
             Current week: {formatWeekLabel(weekKey)}.
           </p>
           <div style={{ marginBottom: '1rem' }}>
@@ -130,78 +114,28 @@ export default function SessionPanel() {
               ))}
             </select>
           </div>
-          <button
-            className="btn-primary"
-            onClick={handleCreateSession}
-            disabled={!newTrial}
-            style={{ padding: '0.5rem 1.5rem' }}
-          >
+          <button className="btn-primary" onClick={handleCreateSession} disabled={!newTrial} style={{ padding: '0.5rem 1.5rem' }}>
             Start Session
           </button>
         </div>
       ) : (
-        // ── Active session ──
         <ActiveSession
           session={session}
-          players={suggestedOrder}
+          players={players}
           playersById={playersById}
-          statsByPlayer={statsByPlayer}
           trialNames={trialNames}
           onAddRun={handleAddRun}
           onUpdateRunPlayers={handleUpdateRunPlayers}
           onMoveRun={handleMoveRun}
           onDeleteRun={handleDeleteRun}
-          onCompleteRun={(i) => { setCompletingRunIndex(i); setCompleteScore('') }}
+          onCompleteRun={handleCompleteRun}
           onCancelRun={handleCancelRun}
           onCloseSession={handleCloseSession}
         />
       )}
 
-      {/* Complete run modal */}
-      {completingRunIndex !== null && session && (
-        <div
-          onClick={() => setCompletingRunIndex(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-        >
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ maxWidth: 400, width: '90%', margin: 0 }}>
-            <div className="card-title" style={{ marginBottom: '0.5rem' }}>
-              Complete Run {completingRunIndex + 1}
-            </div>
-            <p style={{ fontSize: 13, marginBottom: '1rem' }}>
-              Players get +1 scoring turn. Score applied to {trialNames[session.trialNumber] || `Trial ${session.trialNumber}`}.
-            </p>
-            <div style={{ marginBottom: '1rem' }}>
-              <span className="label">
-                Score ({(session.runs[completingRunIndex]?.playerIds || []).map((id) => playersById[id]?.name || '?').join(', ') || 'Empty'})
-              </span>
-              <input
-                type="number"
-                min="0"
-                autoFocus
-                value={completeScore}
-                onChange={(e) => setCompleteScore(e.target.value)}
-                placeholder="Leave blank to skip"
-                style={{ width: '100%', fontFamily: 'var(--font-mono)' }}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCompleteRun() }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn-success" onClick={handleCompleteRun} disabled={saving}>
-                {saving ? 'Saving...' : 'Confirm Complete'}
-              </button>
-              <button onClick={() => setCompletingRunIndex(null)} disabled={saving}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Past sessions — always visible at the bottom */}
       {pastSessions.length > 0 && (
-        <PastSessions
-          sessions={pastSessions}
-          playersById={playersById}
-          trialNames={trialNames}
-        />
+        <PastSessions sessions={pastSessions} playersById={playersById} trialNames={trialNames} />
       )}
     </div>
   )
@@ -209,18 +143,16 @@ export default function SessionPanel() {
 
 // ── Active Session ───────────────────────────────────────────────────────────
 
-function ActiveSession({ session, players, playersById, statsByPlayer, trialNames, onAddRun, onUpdateRunPlayers, onMoveRun, onDeleteRun, onCompleteRun, onCancelRun, onCloseSession }) {
+function ActiveSession({ session, players, playersById, trialNames, onAddRun, onUpdateRunPlayers, onMoveRun, onDeleteRun, onCompleteRun, onCancelRun, onCloseSession }) {
   const [editingRunIndex, setEditingRunIndex] = useState(null)
 
   const trialName = trialNames[session.trialNumber] || `Trial ${session.trialNumber}`
-  const activeRunIndex = session.runs.findIndex((w) => w.status === 'active')
-  const completedCount = session.runs.filter((w) => w.status === 'complete').length
-  const pendingCount = session.runs.filter((w) => w.status === 'pending').length
+  const activeRunIndex = session.runs.findIndex((r) => r.status === 'active')
+  const completedCount = session.runs.filter((r) => r.status === 'complete').length
+  const pendingCount = session.runs.filter((r) => r.status === 'pending').length
 
   const scoredInSession = new Set(
-    session.runs
-      .filter((w) => w.status === 'complete')
-      .flatMap((w) => w.playerIds || [])
+    session.runs.filter((r) => r.status === 'complete').flatMap((r) => r.playerIds || [])
   )
 
   return (
@@ -230,31 +162,25 @@ function ActiveSession({ session, players, playersById, statsByPlayer, trialName
           <h2 style={{ marginTop: 0, marginBottom: '0.25rem' }}>Session: {trialName}</h2>
           <p style={{ fontSize: 13, margin: 0 }}>
             {completedCount} run{completedCount !== 1 ? 's' : ''} complete · {pendingCount} upcoming
+            <span style={{ marginLeft: '0.75rem', color: 'var(--muted)', fontSize: 12 }}>Planning only — no points awarded</span>
           </p>
         </div>
-        <button className="btn-neutral" onClick={onCloseSession} style={{ fontSize: 12 }}>
-          Close Session
-        </button>
+        <button className="btn-neutral" onClick={onCloseSession} style={{ fontSize: 12 }}>Close Session</button>
       </div>
 
       {/* Player pool overview */}
       <div style={{ marginBottom: '1.5rem', padding: '0.75rem', background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)' }}>
-        <span className="label" style={{ marginBottom: '0.4rem' }}>Player Pool — Priority Order</span>
+        <span className="label" style={{ marginBottom: '0.4rem' }}>Player Pool</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-          {players.map((p) => {
-            const stats = statsByPlayer[p.id] || { contributionPoints: 0, scoreAchieved: 0 }
+          {[...players].sort((a, b) => a.name.localeCompare(b.name)).map((p) => {
             const scored = scoredInSession.has(p.id)
             return (
-              <div
-                key={p.id}
-                style={{
-                  padding: '0.2rem 0.6rem', fontSize: 12, borderRadius: 16,
-                  border: `1px solid ${scored ? 'var(--success)' : 'var(--border)'}`,
-                  background: scored ? 'rgba(63,185,80,0.1)' : 'var(--surface2)',
-                  color: scored ? 'var(--success)' : 'var(--text)',
-                }}
-                title={`${stats.contributionPoints}pt · ${stats.scoreAchieved}t`}
-              >
+              <div key={p.id} style={{
+                padding: '0.2rem 0.6rem', fontSize: 12, borderRadius: 16,
+                border: `1px solid ${scored ? 'var(--success)' : 'var(--border)'}`,
+                background: scored ? 'rgba(63,185,80,0.1)' : 'var(--surface2)',
+                color: scored ? 'var(--success)' : 'var(--text)',
+              }}>
                 {p.name}{scored ? ' ✓' : ''}
               </div>
             )
@@ -274,7 +200,6 @@ function ActiveSession({ session, players, playersById, statsByPlayer, trialName
           runNumber={index + 1}
           playersById={playersById}
           players={players}
-          statsByPlayer={statsByPlayer}
           scoredInSession={scoredInSession}
           isActive={index === activeRunIndex}
           isPending={run.status === 'pending'}
@@ -297,28 +222,14 @@ function ActiveSession({ session, players, playersById, statsByPlayer, trialName
   )
 }
 
-// ── Run Card ────────────────────────────────────────────────────────────────
+// ── Run Card ─────────────────────────────────────────────────────────────────
 
-function RunCard({ run, runNumber, playersById, players, statsByPlayer, scoredInSession, isActive, isPending, isEditing, onEdit, onCancelEdit, onSavePlayers, onComplete, onCancel, onMoveUp, onMoveDown, onDelete }) {
+function RunCard({ run, runNumber, playersById, players, scoredInSession, isActive, isPending, isEditing, onEdit, onCancelEdit, onSavePlayers, onComplete, onCancel, onMoveUp, onMoveDown, onDelete }) {
   const [selectedIds, setSelectedIds] = useState(run.playerIds || [])
 
   useEffect(() => { setSelectedIds(run.playerIds || []) }, [run.playerIds])
 
-  function togglePlayer(playerId) {
-    setSelectedIds((prev) =>
-      prev.includes(playerId)
-        ? prev.filter((id) => id !== playerId)
-        : prev.length < 3 ? [...prev, playerId] : prev
-    )
-  }
-
-  const borderColor = {
-    complete: 'var(--success)',
-    cancelled: 'var(--muted)',
-    active: 'var(--accent)',
-    pending: 'var(--border2)',
-  }[run.status]
-
+  const borderColor = { complete: 'var(--success)', cancelled: 'var(--muted)', active: 'var(--accent)', pending: 'var(--border2)' }[run.status]
   const statusLabel = { complete: 'Complete', cancelled: 'Cancelled', active: 'Active', pending: 'Upcoming' }[run.status]
   const badgeClass = { complete: 'success', cancelled: 'cancelled', active: 'active', pending: '' }[run.status]
   const playerNames = (run.playerIds || []).map((id) => playersById[id]?.name || '?')
@@ -331,19 +242,16 @@ function RunCard({ run, runNumber, playersById, players, statsByPlayer, scoredIn
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>
               Run {runNumber}
             </span>
-            {badgeClass && <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>{statusLabel}</span>}
-            {!badgeClass && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{statusLabel}</span>}
+            {badgeClass
+              ? <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>{statusLabel}</span>
+              : <span style={{ fontSize: 11, color: 'var(--muted)' }}>{statusLabel}</span>
+            }
           </div>
           {!isEditing && (
             <div style={{ fontSize: 13 }}>
               {playerNames.length === 0
                 ? <span style={{ color: 'var(--muted)' }}>No players assigned</span>
                 : playerNames.join(', ')}
-              {run.score != null && (
-                <span style={{ marginLeft: '0.5rem', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                  · Score: {run.score}
-                </span>
-              )}
             </div>
           )}
         </div>
@@ -372,34 +280,25 @@ function RunCard({ run, runNumber, playersById, players, statsByPlayer, scoredIn
 
       {isEditing && (
         <div style={{ marginTop: '0.75rem' }}>
-          <p style={{ fontSize: 12, marginBottom: '0.4rem' }}>
-            Select up to 3 players. Sorted by priority. ✓ = already scored this session.
+          <p style={{ fontSize: 12, marginBottom: '0.75rem' }}>
+            Select up to 3 players. ✓ = already completed a run this session.
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.5rem' }}>
-            {players.map((p) => {
-              const stats = statsByPlayer[p.id] || { contributionPoints: 0, scoreAchieved: 0 }
-              const selected = selectedIds.includes(p.id)
-              const scored = scoredInSession.has(p.id) && !run.playerIds.includes(p.id)
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => togglePlayer(p.id)}
-                  disabled={!selected && selectedIds.length >= 3}
-                  title={`${stats.contributionPoints}pt · ${stats.scoreAchieved}t`}
-                  style={{
-                    padding: '0.25rem 0.6rem', fontSize: 12, borderRadius: 16,
-                    border: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
-                    background: selected ? 'rgba(57,208,216,0.12)' : 'var(--surface)',
-                    color: scored ? 'var(--success)' : 'var(--text)', cursor: 'pointer',
-                    opacity: !selected && selectedIds.length >= 3 ? 0.4 : 1,
-                  }}
-                >
-                  {p.name}{scored ? ' ✓' : ''}
-                </button>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <AlphaPlayerGrid
+            players={players}
+            isSelected={(p) => selectedIds.includes(p.id)}
+            isDisabled={() => false}
+            onToggle={(p) => setSelectedIds((prev) =>
+              prev.includes(p.id)
+                ? prev.filter((id) => id !== p.id)
+                : prev.length < 3 ? [...prev, p.id] : prev
+            )}
+            renderSubtitle={(p) =>
+              scoredInSession.has(p.id) && !run.playerIds.includes(p.id) ? '✓ ran this session' : null
+            }
+            maxSelected={3}
+            selectedIds={selectedIds}
+          />
+          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.75rem' }}>
             <button className="btn-primary" onClick={() => onSavePlayers(selectedIds)} style={{ fontSize: 12 }}>Save</button>
             <button onClick={onCancelEdit} style={{ fontSize: 12 }}>Cancel</button>
           </div>
@@ -435,9 +334,8 @@ function PastSessions({ sessions, playersById, trialNames }) {
         <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {sessions.map((s) => {
             const trialName = trialNames[s.trialNumber] || `Trial ${s.trialNumber}`
-            const completedRuns = (s.runs || []).filter((w) => w.status === 'complete')
+            const completedRuns = (s.runs || []).filter((r) => r.status === 'complete')
             const isExpanded = expandedSession === s.id
-
             return (
               <div key={s.id} className="card">
                 <div
@@ -461,9 +359,8 @@ function PastSessions({ sessions, playersById, trialNames }) {
                       const statusLabel = { complete: 'Complete', cancelled: 'Cancelled', active: 'Active', pending: 'Upcoming' }[run.status]
                       return (
                         <div key={run.id || i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.3rem 0', borderLeft: `3px solid ${borderColor}`, paddingLeft: '0.6rem', marginBottom: '0.3rem' }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', minWidth: 55 }}>Run {i + 1}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', minWidth: 50 }}>Run {i + 1}</span>
                           <span style={{ fontSize: 13, flex: 1 }}>{playerNames.join(', ') || '—'}</span>
-                          {run.score != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent)' }}>{run.score}</span>}
                           <span style={{ fontSize: 11, color: 'var(--muted)' }}>{statusLabel}</span>
                         </div>
                       )

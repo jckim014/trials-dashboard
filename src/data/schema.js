@@ -452,30 +452,22 @@ export async function updateSession(sessionId, data) {
 }
 
 /**
- * Complete a wave: mark it complete, apply scoring turn + optional score
- * to its players, then activate the next pending wave.
+ * Complete a run in a session: mark it complete and activate the next
+ * pending run. Sessions are planning-only — no points or scores are
+ * applied here. Use the event system or run planner for official credit.
  */
-export async function completeWave(session, runIndex, score = null) {
+export async function completeWave(session, runIndex) {
   const runs = session.runs.map((w, i) => {
-    if (i === runIndex) return { ...w, status: 'complete', score: score ?? null, completedAt: new Date().toISOString() }
+    if (i === runIndex) return { ...w, status: 'complete', completedAt: new Date().toISOString() }
     if (i === runIndex + 1 && w.status === 'pending') return { ...w, status: 'active' }
     return w
   })
   await updateSession(session.id, { runs })
-
-  const wave = session.runs[runIndex]
-  const updates = []
-  for (const playerId of wave.playerIds || []) {
-    updates.push(incrementWeeklyStat(session.weekKey, playerId, 'scoreAchieved', 1))
-    if (score !== null && session.trialNumber) {
-      updates.push(setTrialScore(session.weekKey, playerId, session.trialNumber, score))
-    }
-  }
-  await Promise.all(updates)
 }
 
 /**
- * Cancel a wave: mark it cancelled, activate the next pending wave.
+ * Cancel a run in a session: mark it cancelled and activate the next
+ * pending run. No points applied.
  */
 export async function cancelWave(session, runIndex) {
   const runs = session.runs.map((w, i) => {
@@ -484,4 +476,42 @@ export async function cancelWave(session, runIndex) {
     return w
   })
   await updateSession(session.id, { runs })
+}
+
+// ---------- Backup / Restore ----------
+
+const BACKUP_COLLECTIONS = ['players', 'events', 'weekly_stats', 'trial_scores', 'trial_names', 'sessions', 'runs', 'config']
+
+/**
+ * Export a full snapshot of all collections as a plain JSON object.
+ * config/metaforge_cache is excluded (ephemeral schedule cache).
+ */
+export async function exportSnapshot() {
+  const snapshot = {}
+
+  for (const col of BACKUP_COLLECTIONS) {
+    const snap = await getDocs(collection(db, col))
+    snapshot[col] = snap.docs
+      .filter((d) => d.id !== 'metaforge_cache') // exclude schedule cache
+      .map((d) => ({ _id: d.id, ...d.data() }))
+  }
+
+  return snapshot
+}
+
+/**
+ * Import a full snapshot, overwriting all existing documents.
+ * Each document is restored with its original ID using setDoc.
+ * Collections not present in the snapshot are left untouched.
+ */
+export async function importSnapshot(snapshot) {
+  for (const [col, docs] of Object.entries(snapshot)) {
+    if (!BACKUP_COLLECTIONS.includes(col)) continue
+    for (const docData of docs) {
+      const { _id, ...data } = docData
+      if (!_id) continue
+      // Convert any ISO date strings back to plain objects (Firestore handles serialization)
+      await setDoc(doc(db, col, _id), data)
+    }
+  }
 }
