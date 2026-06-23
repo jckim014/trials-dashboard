@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public read access to everything (full transparency per design).
+    // Writes are restricted — see per-collection rules below.
+    // NOTE: This app uses a passphrase-based admin gate checked CLIENT-SIDE
+    // (hash comparison against config/admin). These rules do NOT verify the
+    // passphrase server-side — they rely on the app only exposing write UI
+    // to authenticated-in-app admins. This is a "keep honest people honest +
+    // deter casual trolls" model, not a high-security model. See README.
+
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if true; // gated by client-side admin check in UI
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /weekly_stats/{statId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /trial_scores/{scoreId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /config/metaforge_cache {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // The admin passphrase hash: readable (needed for client-side check)
+    // but NOT writable from the client. Update this doc manually via the
+    // Firebase console only.
+    match /config/admin {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
