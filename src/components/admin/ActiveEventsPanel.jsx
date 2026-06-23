@@ -3,6 +3,7 @@ import { getEvents, getPlayers, updateEvent, finalizeEvent, getTrialNames } from
 import EventList from '../shared/EventList.jsx'
 import CompleteEventModal from './CompleteEventModal.jsx'
 import EditSquadsModal from './EditSquadsModal.jsx'
+import SquadDisplay from '../shared/SquadDisplay.jsx'
 
 function formatLocalTime(ts) {
   if (!ts) return 'TBD'
@@ -154,28 +155,12 @@ function EventAdminCard({ event, playersById, players, trialName, onFinalize, fi
         </div>
 
         {/* Squads read view */}
-        <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-          {(event.squads || []).map((squad, i) => {
-            const isScoring = squad.label === 'scoring'
-            return (
-              <div key={i} style={{ fontSize: 13 }}>
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                  color: isScoring ? 'var(--scoring)' : 'var(--muted)',
-                  textTransform: 'uppercase', letterSpacing: '0.04em', marginRight: '0.5rem',
-                }}>
-                  {isScoring ? 'Scoring' : supportLabel(event.squads, i)}
-                </span>
-                {squad.memberIds.length === 0
-                  ? <span style={{ color: 'var(--muted)' }}>—</span>
-                  : squad.memberIds.map((id) => playersById[id]?.name || '?').join(', ')}
-              </div>
-            )
-          })}
+        <div style={{ marginTop: '0.75rem' }}>
+          <SquadDisplay squads={event.squads} playersById={playersById} />
           {!readonly && (
             <button
               onClick={() => setEditingSquads(true)}
-              style={{ marginTop: '0.5rem', fontSize: 12, alignSelf: 'flex-start' }}
+              style={{ marginTop: '0.5rem', fontSize: 12 }}
             >
               Edit Squads
             </button>
