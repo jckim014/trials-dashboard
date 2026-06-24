@@ -4,6 +4,7 @@ import EventList from '../shared/EventList.jsx'
 import CompleteEventModal from './CompleteEventModal.jsx'
 import EditSquadsModal from './EditSquadsModal.jsx'
 import SquadDisplay from '../shared/SquadDisplay.jsx'
+import DraggableSquadDisplay from './DraggableSquadDisplay.jsx'
 
 function formatLocalTime(ts) {
   if (!ts) return 'TBD'
@@ -139,6 +140,11 @@ function EventAdminCard({ event, playersById, players, trialName, onFinalize, fi
     onUpdate()
   }
 
+  async function handleDragSave(squads) {
+    await updateEvent(event.id, { squads })
+    onUpdate()
+  }
+
   return (
     <>
       <div className="card" style={{ marginBottom: '0.75rem' }}>
@@ -154,9 +160,16 @@ function EventAdminCard({ event, playersById, players, trialName, onFinalize, fi
           <span className={'badge ' + event.status}>{STATUS_LABELS[event.status] || event.status}</span>
         </div>
 
-        {/* Squads read view */}
+        {/* Squads */}
         <div style={{ marginTop: '0.75rem' }}>
-          <SquadDisplay squads={event.squads} playersById={playersById} />
+          {readonly
+            ? <SquadDisplay squads={event.squads} playersById={playersById} />
+            : <DraggableSquadDisplay
+                squads={event.squads}
+                playersById={playersById}
+                onSquadsChange={handleDragSave}
+              />
+          }
           {!readonly && (
             <button
               onClick={() => setEditingSquads(true)}

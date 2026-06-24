@@ -480,7 +480,7 @@ export async function cancelWave(session, runIndex) {
 
 // ---------- Backup / Restore ----------
 
-const BACKUP_COLLECTIONS = ['players', 'events', 'weekly_stats', 'trial_scores', 'trial_names', 'sessions', 'runs', 'config']
+const BACKUP_COLLECTIONS = ['players', 'events', 'weekly_stats', 'trial_scores', 'trial_names', 'sessions']
 
 /**
  * Export a full snapshot of all collections as a plain JSON object.
@@ -492,11 +492,25 @@ export async function exportSnapshot() {
   for (const col of BACKUP_COLLECTIONS) {
     const snap = await getDocs(collection(db, col))
     snapshot[col] = snap.docs
-      .filter((d) => d.id !== 'metaforge_cache') // exclude schedule cache
-      .map((d) => ({ _id: d.id, ...d.data() }))
+      .filter((d) => d.id !== 'metaforge_cache')
+      .map((d) => ({ _id: d.id, ...convertTimestamps(d.data()) }))
   }
 
   return snapshot
+}
+
+/**
+ * Recursively convert Firestore Timestamps to ISO strings so they
+ * survive JSON.stringify without being silently dropped or throwing.
+ */
+function convertTimestamps(obj) {
+  if (obj === null || obj === undefined) return obj
+  if (obj?.toDate && typeof obj.toDate === 'function') return obj.toDate().toISOString()
+  if (Array.isArray(obj)) return obj.map(convertTimestamps)
+  if (typeof obj === 'object') {
+    return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, convertTimestamps(v)]))
+  }
+  return obj
 }
 
 /**
