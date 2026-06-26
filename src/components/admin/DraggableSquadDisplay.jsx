@@ -133,6 +133,7 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
                     onChange={setRoleValue}
                     onSelect={(label) => saveRole(i, label)}
                     onDelete={handleDeleteRole}
+                    onClear={() => saveRole(i, '')}
                     pool={rolePool}
                     autoFocus
                   />

@@ -166,6 +166,7 @@ export default function EditSquadsModal({ event, players, playersById, onSave, o
                         value={squad.role || ''}
                         onChange={(val) => updateRole(i, val)}
                         onDelete={handleDeleteRole}
+                        onClear={() => updateRole(i, '')}
                         pool={rolePool}
                       />
                     </div>

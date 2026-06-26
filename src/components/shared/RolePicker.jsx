@@ -71,7 +71,7 @@ export function RolePill({ entry, onClick, style }) {
  * Color assignment happens in schema.js (addRoleToPool) not here.
  * This component is display/selection only.
  */
-export default function RolePicker({ value, onChange, onSelect, onDelete, pool = [], placeholder = 'Type or pick a role...', style, autoFocus }) {
+export default function RolePicker({ value, onChange, onSelect, onDelete, onClear, pool = [], placeholder = 'Type or pick a role...', style, autoFocus }) {
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(-1)
   const wrapperRef = useRef(null)
@@ -81,6 +81,7 @@ export default function RolePicker({ value, onChange, onSelect, onDelete, pool =
 
   const listItems = [
     { type: 'add', label: null },
+    ...(value ? [{ type: 'clear', label: null }] : []),
     ...pool.map(e => ({ type: 'pool', label: e.role, color: e.color })),
   ]
 
@@ -177,7 +178,15 @@ export default function RolePicker({ value, onChange, onSelect, onDelete, pool =
                   transition: 'background 0.08s',
                 }}
               >
-                {item.type === 'add' ? (
+                {item.type === 'clear' ? (
+                  <span
+                    style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onClear?.() }}
+                  >
+                    <span style={{ fontSize: 11, lineHeight: 1 }}>✕</span>
+                    Clear role
+                  </span>
+                ) : item.type === 'add' ? (
                   <span
                     style={{
                       fontSize: 11, color: 'var(--accent)',
