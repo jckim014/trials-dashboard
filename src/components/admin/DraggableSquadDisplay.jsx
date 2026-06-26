@@ -1,40 +1,35 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import RolePicker, { RolePill } from '../shared/RolePicker.jsx'
+import { getRolePool, addRoleToPool, deleteRoleFromPool } from '../../data/schema.js'
 
 function squadLabel(squads, index) {
-  const isScoring = squads[index]?.label === 'scoring'
-  if (isScoring) return 'Scoring'
-  const supportNum = squads.slice(0, index).filter(s => s.label === 'support').length + 1
+  const s = squads[index]
+  if (s?.label === 'scoring') return 'Scoring'
+  const supportNum = squads.slice(0, index).filter(x => x.label === 'support').length + 1
   return `Support ${supportNum}`
 }
 
-/**
- * Admin-only squad display with drag-and-drop rearrangement.
- * Players can be dragged between squads directly on the event card.
- * Squads can temporarily exceed 3 players (shown as warning).
- * Removals must be done via Edit Squads modal.
- *
- * Props:
- *   squads: array of { label, memberIds[] }
- *   playersById: { [id]: player }
- *   onSquadsChange: (newSquads) => void — called on every drop, parent saves to Firestore
- */
-export default function DraggableSquadDisplay({ squads, playersById, onSquadsChange }) {
-  const [dragState, setDragState] = useState(null) // { playerId, fromSquadIndex }
+export default function DraggableSquadDisplay({ squads, playersById, onSquadsChange, trialNumber }) {
+  const [dragState, setDragState] = useState(null)
   const [overSquadIndex, setOverSquadIndex] = useState(null)
+  const [editingRoleIndex, setEditingRoleIndex] = useState(null)
+  const [roleValue, setRoleValue] = useState('')
+  const [rolePool, setRolePool] = useState([]) // { role, color }[]
+
+  useEffect(() => {
+    if (!trialNumber) return
+    getRolePool(trialNumber).then(setRolePool)
+  }, [trialNumber])
 
   if (!squads || squads.length === 0) return null
 
   function handleDragStart(e, playerId, fromSquadIndex) {
     setDragState({ playerId, fromSquadIndex })
     e.dataTransfer.effectAllowed = 'move'
-    // Needed for Firefox
     e.dataTransfer.setData('text/plain', playerId)
   }
 
-  function handleDragEnd() {
-    setDragState(null)
-    setOverSquadIndex(null)
-  }
+  function handleDragEnd() { setDragState(null); setOverSquadIndex(null) }
 
   function handleDragOver(e, toSquadIndex) {
     e.preventDefault()
@@ -42,31 +37,49 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
     setOverSquadIndex(toSquadIndex)
   }
 
-  function handleDragLeave() {
-    setOverSquadIndex(null)
-  }
+  function handleDragLeave() { setOverSquadIndex(null) }
 
   function handleDrop(e, toSquadIndex) {
     e.preventDefault()
     setOverSquadIndex(null)
-
     if (!dragState) return
     const { playerId, fromSquadIndex } = dragState
-
-    if (fromSquadIndex === toSquadIndex) return // dropped on same squad
-
+    if (fromSquadIndex === toSquadIndex) return
     const newSquads = squads.map((squad, i) => {
-      if (i === fromSquadIndex) {
-        return { ...squad, memberIds: squad.memberIds.filter(id => id !== playerId) }
-      }
-      if (i === toSquadIndex) {
-        return { ...squad, memberIds: [...squad.memberIds, playerId] }
-      }
+      if (i === fromSquadIndex) return { ...squad, memberIds: squad.memberIds.filter(id => id !== playerId) }
+      if (i === toSquadIndex) return { ...squad, memberIds: [...squad.memberIds, playerId] }
       return squad
     })
-
     onSquadsChange(newSquads)
     setDragState(null)
+  }
+
+  function startEditRole(i) {
+    setEditingRoleIndex(i)
+    setRoleValue(squads[i]?.role || '')
+  }
+
+  async function saveRole(i, overrideValue) {
+    const trimmed = (overrideValue ?? roleValue).trim()
+    const newSquads = squads.map((s, idx) => idx === i ? { ...s, role: trimmed || null } : s)
+    onSquadsChange(newSquads)
+    if (trimmed && trialNumber) {
+      await addRoleToPool(trialNumber, trimmed)
+      getRolePool(trialNumber).then(setRolePool)
+    }
+    setEditingRoleIndex(null)
+  }
+
+  function cancelEditRole() {
+    setEditingRoleIndex(null)
+  }
+
+  async function handleDeleteRole(role) {
+    await deleteRoleFromPool(trialNumber, role)
+    getRolePool(trialNumber).then(setRolePool)
+    // If any visible squad has this role, clear it locally too
+    const newSquads = squads.map(s => s.role === role ? { ...s, role: null } : s)
+    if (newSquads.some((s, i) => s.role !== squads[i].role)) onSquadsChange(newSquads)
   }
 
   return (
@@ -75,7 +88,9 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
         const isScoring = squad.label === 'scoring'
         const isOver = overSquadIndex === i
         const isOverCapacity = squad.memberIds.length > 3
-        const isDraggingFrom = dragState?.fromSquadIndex === i
+        const isEditingRole = editingRoleIndex === i
+        // Find the pool entry for this squad's current role (for color)
+        const roleEntry = squad.role ? rolePool.find(e => e.role === squad.role) ?? { role: squad.role, color: 0 } : null
 
         return (
           <div
@@ -84,40 +99,58 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, i)}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              flexWrap: 'wrap',
-              padding: '0.3rem 0.5rem',
-              borderRadius: 'var(--radius-sm)',
-              border: isOver
-                ? `2px dashed ${isScoring ? 'var(--accent)' : 'var(--muted)'}`
-                : '2px solid transparent',
+              display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+              padding: '0.3rem 0.5rem', borderRadius: 'var(--radius-sm)',
+              border: isOver ? `2px dashed ${isScoring ? 'var(--accent)' : 'var(--muted)'}` : '2px solid transparent',
               background: isOver ? 'rgba(57,208,216,0.05)' : 'transparent',
-              transition: 'border-color 0.1s, background 0.1s',
-              minHeight: 32,
+              transition: 'border-color 0.1s, background 0.1s', minHeight: 32,
             }}
           >
-            {/* Squad label */}
             <span style={{
               fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
               color: isScoring ? 'var(--accent)' : 'var(--muted)',
               textTransform: 'uppercase', letterSpacing: '0.05em',
-              minWidth: 56, flexShrink: 0,
-              userSelect: 'none',
+              minWidth: 56, flexShrink: 0, userSelect: 'none',
             }}>
               {squadLabel(squads, i)}
             </span>
 
-            {/* Over capacity warning */}
+            {isEditingRole ? (
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                onBlur={(e) => {
+                  // Use timeout so mousedown-based dropdown selections complete first
+                  const currentTarget = e.currentTarget
+                  setTimeout(() => {
+                    if (!currentTarget.contains(document.activeElement)) cancelEditRole()
+                  }, 150)
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveRole(i); if (e.key === 'Escape') cancelEditRole() }}
+              >
+                <div style={{ width: 160 }}>
+                  <RolePicker
+                    value={roleValue}
+                    onChange={setRoleValue}
+                    onSelect={(label) => saveRole(i, label)}
+                    onDelete={handleDeleteRole}
+                    pool={rolePool}
+                    autoFocus
+                  />
+                </div>
+                <button onClick={() => saveRole(i)} style={{ fontSize: 10, padding: '0.1rem 0.4rem' }} title="Save">✓</button>
+                <button onClick={cancelEditRole} style={{ fontSize: 10, padding: '0.1rem 0.4rem' }} title="Cancel">✕</button>
+              </div>
+            ) : (
+              <RolePill entry={roleEntry} onClick={() => startEditRole(i)} />
+            )}
+
             {isOverCapacity && (
               <span style={{ fontSize: 10, color: 'var(--warning)', fontFamily: 'var(--font-mono)' }}>
                 {squad.memberIds.length}/3 ⚠
               </span>
             )}
 
-            {/* Player pills */}
-            {squad.memberIds.length === 0 && !isOver && (
+            {squad.memberIds.length === 0 && !isOver && !isEditingRole && (
               <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
                 {dragState ? 'Drop here' : '—'}
               </span>
@@ -126,7 +159,6 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
             {squad.memberIds.map((id) => {
               const name = playersById[id]?.name || '?'
               const isDragging = dragState?.playerId === id
-
               return (
                 <span
                   key={id}
@@ -134,22 +166,13 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
                   onDragStart={(e) => handleDragStart(e, id, i)}
                   onDragEnd={handleDragEnd}
                   style={{
-                    display: 'inline-block',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    padding: '0.2rem 0.65rem',
-                    borderRadius: 20,
-                    background: isDragging
-                      ? 'var(--surface2)'
-                      : isScoring
-                        ? 'rgba(57,208,216,0.15)'
-                        : 'rgba(30,30,30,0.6)',
+                    display: 'inline-block', fontSize: 12, fontWeight: 500,
+                    padding: '0.2rem 0.65rem', borderRadius: 20,
+                    background: isDragging ? 'var(--surface2)' : isScoring ? 'rgba(57,208,216,0.15)' : 'rgba(30,30,30,0.6)',
                     border: `1px solid ${isDragging ? 'var(--border)' : isScoring ? 'rgba(57,208,216,0.4)' : 'rgba(80,80,80,0.6)'}`,
                     color: isDragging ? 'var(--muted)' : 'var(--text)',
-                    cursor: 'grab',
-                    opacity: isDragging ? 0.5 : 1,
-                    userSelect: 'none',
-                    transition: 'opacity 0.1s',
+                    cursor: 'grab', opacity: isDragging ? 0.5 : 1,
+                    userSelect: 'none', transition: 'opacity 0.1s',
                   }}
                   title="Drag to move to another squad"
                 >
@@ -158,11 +181,8 @@ export default function DraggableSquadDisplay({ squads, playersById, onSquadsCha
               )
             })}
 
-            {/* Drop hint when dragging over empty squad */}
             {isOver && squad.memberIds.length === 0 && (
-              <span style={{ fontSize: 12, color: 'var(--accent)', fontStyle: 'italic' }}>
-                Drop here
-              </span>
+              <span style={{ fontSize: 12, color: 'var(--accent)', fontStyle: 'italic' }}>Drop here</span>
             )}
           </div>
         )

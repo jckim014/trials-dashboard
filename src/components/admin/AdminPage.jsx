@@ -7,7 +7,6 @@ import MaintenancePanel from './MaintenancePanel.jsx'
 import SessionPanel from './SessionPanel.jsx'
 
 const TABS = [
-  { id: 'session', label: 'Session' },
   { id: 'active', label: 'Upcoming Events' },
   { id: 'create', label: 'Create Event' },
   { id: 'scores', label: 'Trial Scores' },
@@ -16,7 +15,7 @@ const TABS = [
 ]
 
 export default function AdminPage() {
-  const [tab, setTab] = useState('session')
+  const [tab, setTab] = useState('active')
   const [scoreSearch, setScoreSearch] = useState('')
 
   function viewPlayerScores(playerName) {
