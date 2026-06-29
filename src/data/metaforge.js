@@ -94,7 +94,7 @@ export function getTimeWindowsForMapCondition(schedule, map, condition) {
   const now = new Date()
   return schedule
     .filter((item) => item.map === map && item.condition === condition)
-    .filter((item) => item.startTime > now)
+    .filter((item) => (item.endTime ?? item.startTime) > now)
     .sort((a, b) => a.startTime - b.startTime)
 }
 
