@@ -125,13 +125,29 @@ export async function getEventsForWeek(weekKey) {
 }
 
 export async function createEvent(eventData) {
+  // New events go to the end of the manual ordering. Order only needs to
+  // be unique-ish and increasing — we don't reuse/compact gaps.
+  const existing = await getEvents()
+  const maxOrder = existing.reduce((max, e) => Math.max(max, e.order ?? 0), 0)
   const ref = await addDoc(collection(db, "events"), {
     ...eventData,
     status: "active",
+    order: maxOrder + 1,
     createdAt: serverTimestamp(),
     endedAt: null,
   });
   return ref.id;
+}
+
+/**
+ * Persist a new relative order for a set of events after a drag-and-drop
+ * reorder. Takes an array of event IDs in their new desired order and
+ * assigns sequential order values.
+ */
+export async function setEventOrder(orderedEventIds) {
+  await Promise.all(
+    orderedEventIds.map((id, index) => updateEvent(id, { order: index }))
+  )
 }
 
 export async function updateEvent(eventId, data) {

@@ -5,10 +5,12 @@ import {
   updateEvent,
   finalizeEvent,
   getTrialNames,
+  setEventOrder,
 } from "../../data/schema.js";
 import EventList from "../shared/EventList.jsx";
 import CompleteEventModal from "./CompleteEventModal.jsx";
 import EditSquadsModal from "./EditSquadsModal.jsx";
+import EditEventModal from "./EditEventModal.jsx";
 import SquadDisplay from "../shared/SquadDisplay.jsx";
 import DraggableSquadDisplay from "./DraggableSquadDisplay.jsx";
 
@@ -39,6 +41,7 @@ export default function ActiveEventsPanel() {
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(null);
   const [completingEvent, setCompletingEvent] = useState(null); // event pending the Complete modal
+  const [editingEvent, setEditingEvent] = useState(null); // event pending the Edit Event modal
 
   async function load() {
     const [evts, plyrs] = await Promise.all([getEvents(), getPlayers()]);
@@ -86,9 +89,41 @@ export default function ActiveEventsPanel() {
     setCompletingEvent(null);
   }
 
+  async function handleReorder(orderedIds) {
+    // Optimistically reorder in local state so the drag feels instant.
+    // Must stamp matching .order values onto the local copies too —
+    // otherwise the very next render's sort-by-.order in sortedEvents
+    // would immediately undo the reorder using stale order numbers.
+    setEvents((prev) => {
+      const byId = Object.fromEntries(prev.map((e) => [e.id, e]));
+      const reorderedUpcoming = orderedIds.map((id, index) => ({
+        ...byId[id],
+        order: index,
+      }));
+      const rest = prev.filter((e) => e.status !== "active");
+      return [...reorderedUpcoming, ...rest];
+    });
+    await setEventOrder(orderedIds);
+  }
+
   if (loading) return <p>Loading events...</p>;
 
   const playersById = Object.fromEntries(players.map((p) => [p.id, p]));
+
+  // Sort upcoming events by manual order (falling back to startTime for
+  // events created before the order field existed); past events keep
+  // whatever order EventList groups them in internally.
+  const sortedEvents = [...events].sort((a, b) => {
+    if (a.status === "active" && b.status === "active") {
+      const aOrder = a.order ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b.order ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      const aTime = a.startTime?.toMillis?.() ?? new Date(a.startTime).getTime();
+      const bTime = b.startTime?.toMillis?.() ?? new Date(b.startTime).getTime();
+      return aTime - bTime;
+    }
+    return 0; // EventList handles past-event ordering internally
+  });
 
   const scoringMemberNames = completingEvent
     ? (completingEvent.squads || [])
@@ -107,9 +142,11 @@ export default function ActiveEventsPanel() {
   return (
     <>
       <EventList
-        events={events}
+        events={sortedEvents}
         emptyMessage="No upcoming events. Create one in the Create Event tab."
-        renderCard={(event) => (
+        reorderable
+        onReorder={handleReorder}
+        renderCard={(event, { dragHandleProps }) => (
           <EventAdminCard
             key={event.id}
             event={event}
@@ -122,9 +159,11 @@ export default function ActiveEventsPanel() {
                 : null
             }
             onFinalize={handleFinalize}
+            onEdit={() => setEditingEvent(event)}
             finalizing={finalizing === event.id}
             onUpdate={load}
             readonly={event.status !== "active"}
+            dragHandleProps={dragHandleProps}
           />
         )}
       />
@@ -137,6 +176,14 @@ export default function ActiveEventsPanel() {
           onConfirm={handleConfirmComplete}
           onCancel={() => setCompletingEvent(null)}
           saving={finalizing === completingEvent.id}
+        />
+      )}
+
+      {editingEvent && (
+        <EditEventModal
+          event={editingEvent}
+          onSaved={() => { setEditingEvent(null); load(); }}
+          onCancel={() => setEditingEvent(null)}
         />
       )}
     </>
@@ -155,9 +202,11 @@ function EventAdminCard({
   players,
   trialName,
   onFinalize,
+  onEdit,
   finalizing,
   onUpdate,
   readonly = false,
+  dragHandleProps,
 }) {
   const [editingSquads, setEditingSquads] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -197,9 +246,23 @@ function EventAdminCard({
               </p>
             )}
           </div>
-          <span className={"badge " + event.status}>
-            {STATUS_LABELS[event.status] || event.status}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span className={"badge " + event.status}>
+              {STATUS_LABELS[event.status] || event.status}
+            </span>
+            {!readonly && dragHandleProps && (
+              <span
+                {...dragHandleProps}
+                title="Drag to reorder"
+                style={{
+                  fontSize: 16, color: "var(--muted)", cursor: "grab",
+                  userSelect: "none", lineHeight: 1, padding: "0.2rem",
+                }}
+              >
+                ⠿
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Squads */}
@@ -215,12 +278,14 @@ function EventAdminCard({
             />
           )}
           {!readonly && (
-            <button
-              onClick={() => setEditingSquads(true)}
-              style={{ marginTop: "0.5rem", fontSize: 12 }}
-            >
-              Edit Squads
-            </button>
+            <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem" }}>
+              <button onClick={() => setEditingSquads(true)} style={{ fontSize: 12 }}>
+                Edit Squads
+              </button>
+              <button onClick={onEdit} style={{ fontSize: 12 }}>
+                Edit Event
+              </button>
+            </div>
           )}
         </div>
 
